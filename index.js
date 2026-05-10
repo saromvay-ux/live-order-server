@@ -71,8 +71,10 @@ async function sendMessengerMessage(psid, message) {
       }
     );
     console.log(`✅ Messenger sent to ${psid}`);
+    return true;
   } catch (e) {
     console.error('❌ Messenger error:', e.response?.data || e.message);
+    return false;
   }
 }
 
@@ -150,11 +152,14 @@ async function processComment(senderPsid, senderName, message, commentId) {
 
   // Send Messenger message if we have PSID
   if (senderPsid && senderPsid !== 'unknown') {
-    await sendMessengerMessage(senderPsid, msg);
-  }
-
-  // Also reply on comment
-  if (commentId) {
+    const sent = await sendMessengerMessage(senderPsid, msg);
+    if (!sent && commentId) {
+      // New customer — never messaged page before
+      const newCustomerMsg = `សួស្តី ${userName}! 👋\nបញ្ជាទិញបានជោគជ័យ! ✅\n\nដើម្បីទទួលបានការបញ្ជាក់តាម Messenger សូម:\n1️⃣ ចូលទៅកាន់ Page "Noun online"\n2️⃣ Click "Send Message"\n3️⃣ វាយ "ហាយ" មួយដង\n\nបន្ទាប់មក អ្នកនឹងទទួលបានការបញ្ជាក់ស្វ័យប្រវត្តិ! 🛍️`;
+      await replyOnComment(commentId, newCustomerMsg);
+    }
+  } else if (commentId) {
+    // No PSID — reply on comment with order details
     await replyOnComment(commentId, msg);
   }
 }
