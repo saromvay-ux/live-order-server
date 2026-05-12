@@ -255,6 +255,38 @@ async function processComment(senderPsid, senderName, message, commentId) {
   }
 }
 
+// ── Handle Incoming Messenger Message ────────────────────
+// When customer messages page → find their orders by fbUserId → send summary
+async function handleIncomingMessage(psid, message) {
+  try {
+    // Find orders by fbUserId (psid)
+    const snap = await db.collection('orders')
+      .where('fbUserId', '==', psid)
+      .orderBy('createdAt', 'asc')
+      .get();
+
+    if (snap.empty) {
+      // No orders found — send welcome message
+      console.log(`No orders found for ${psid}`);
+      await sendMessengerMessage(psid,
+        'សួស្តី! 👋\nអរគុណដែលបានទំនាក់ទំនងមកកាន់យើង!\n\nប្រសិនបើអ្នកចង់បញ្ជាទិញ សូមរង់ចាំការ Live លក់របស់យើង! 🛍️'
+      );
+      return;
+    }
+
+    // Orders found — send full summary
+    const orders   = snap.docs.map(d => d.data());
+    const userName = orders[0].userName || 'បងប្អូន';
+    const msg      = buildOrderMessage(userName, orders);
+
+    await sendMessengerMessage(psid, msg);
+    console.log('Order summary sent to ' + psid + ' (' + orders.length + ' orders)');
+
+  } catch(e) {
+    console.error('handleIncomingMessage error:', e.message);
+  }
+}
+
 // ── Webhook Verification ──────────────────────────────────
 app.get('/webhook', (req, res) => {
   const mode      = req.query['hub.mode'];
@@ -278,8 +310,9 @@ app.post('/webhook', async (req, res) => {
       for (const event of entry.messaging || []) {
         if (event.message && !event.message.is_echo) {
           const psid    = event.sender.id;
-          const message = event.message.text || '';
+          const message = (event.message.text || '').trim();
           console.log(`📨 Messenger from ${psid}: ${message}`);
+          await handleIncomingMessage(psid, message);
         }
       }
       for (const change of entry.changes || []) {
