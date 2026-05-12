@@ -91,6 +91,23 @@ async function replyOnComment(commentId, message) {
   }
 }
 
+// ── Helper: Send Private Reply to Comment ────────────────
+// Works for ALL users - no need to message page first!
+async function sendPrivateReply(commentId, message) {
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v25.0/${commentId}/private_replies`,
+      { message },
+      { params: { access_token: PAGE_TOKEN } }
+    );
+    console.log(`✅ Private reply sent to comment ${commentId}`);
+    return true;
+  } catch(e) {
+    console.error('❌ Private reply error:', e.response?.data?.error?.message || e.message);
+    return false;
+  }
+}
+
 // ── Helper: Build order message ───────────────────────────
 function buildOrderMessage(userName, orders) {
   const lines = orders.map(o => {
@@ -194,8 +211,8 @@ async function processComment(senderPsid, senderName, message, commentId) {
     if (senderPsid && senderPsid !== 'unknown') {
       const sent = await sendMessengerMessage(senderPsid, msg);
       if (!sent && commentId) {
-        const newCustomerMsg = `សួស្តី ${userName}! 👋\nបញ្ជាទិញបានជោគជ័យ! ✅\n\nដើម្បីទទួលបានការបញ្ជាក់តាម Messenger សូម:\n1️⃣ ចូលទៅកាន់ Page "Noun online"\n2️⃣ Click "Send Message"\n3️⃣ វាយ "ហាយ" មួយដង\n\nបន្ទាប់មក អ្នកនឹងទទួលបានការបញ្ជាក់ស្វ័យប្រវត្តិ! 🛍️`;
-        await replyOnComment(commentId, newCustomerMsg);
+        // New customer - send via Private Reply (no need to message page first!)
+        await sendPrivateReply(commentId, msg);
       }
     } else if (commentId) {
       await replyOnComment(commentId, msg);
@@ -247,11 +264,12 @@ async function processComment(senderPsid, senderName, message, commentId) {
   if (senderPsid && senderPsid !== 'unknown') {
     const sent = await sendMessengerMessage(senderPsid, msg);
     if (!sent && commentId) {
-      const newCustomerMsg = `សួស្តី ${userName}! 👋\nបញ្ជាទិញបានជោគជ័យ! ✅\n\nដើម្បីទទួលបានការបញ្ជាក់តាម Messenger សូម:\n1️⃣ ចូលទៅកាន់ Page "Noun online"\n2️⃣ Click "Send Message"\n3️⃣ វាយ "ហាយ" មួយដង\n\nបន្ទាប់មក អ្នកនឹងទទួលបានការបញ្ជាក់ស្វ័យប្រវត្តិ! 🛍️`;
-      await replyOnComment(commentId, newCustomerMsg);
+      // New customer - send via Private Reply (no need to message page first!)
+      await sendPrivateReply(commentId, msg);
     }
   } else if (commentId) {
-    await replyOnComment(commentId, msg);
+    // No PSID - send via Private Reply
+    await sendPrivateReply(commentId, msg);
   }
 }
 
