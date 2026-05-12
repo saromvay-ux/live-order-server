@@ -95,8 +95,10 @@ async function replyOnComment(commentId, message) {
 // Works for ALL users - no need to message page first!
 async function sendPrivateReply(commentId, message) {
   try {
+    // Extract real comment ID (format: postId_commentId)
+    const realId = commentId.includes('_') ? commentId.split('_')[1] : commentId;
     await axios.post(
-      `https://graph.facebook.com/v25.0/${commentId}/private_replies`,
+      `https://graph.facebook.com/v25.0/${realId}/private_replies`,
       { message },
       { params: { access_token: PAGE_TOKEN } }
     );
