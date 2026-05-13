@@ -24,6 +24,19 @@ const seenMessageIds = new Set(); // prevent double processing
 const PAGE_TOKEN   = process.env.PAGE_TOKEN;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'liveorder_verify_2024';
 
+// ── Helper: Get Live Mode Status ─────────────────────────
+async function getLiveMode() {
+  try {
+    const snap = await db.collection('settings').doc('live_mode').get();
+    if (!snap.exists) return null;
+    const data = snap.data();
+    if (!data.active) return null;
+    return data; // { active, liveVideoId, pageId }
+  } catch(e) {
+    return null;
+  }
+}
+
 // ── Helper: Get price range for code ─────────────────────
 async function getPriceRangeForCode(code) {
   const snap = await db.collection('price_ranges').get();
@@ -363,6 +376,21 @@ app.post('/webhook', async (req, res) => {
             const message    = val.message || '';
             const senderName = val.from?.name || 'User_' + (val.from?.id || 'unknown').slice(-6);
             const senderPsid = val.from?.id || 'unknown';
+
+            // Check Live Mode — only process comments from active live video
+            const liveMode = await getLiveMode();
+            if (!liveMode) {
+              console.log(`⏸️ Live Mode OFF — ignoring comment from ${senderName}`);
+              return;
+            }
+
+            // Check if comment is from the active live video
+            const postId = val.post_id || val.video_id || '';
+            if (liveMode.liveVideoId && postId && !postId.includes(liveMode.liveVideoId) && commentId && !commentId.includes(liveMode.liveVideoId)) {
+              console.log(`⏸️ Comment not from active live (${liveMode.liveVideoId}) — ignoring`);
+              return;
+            }
+
             await processComment(senderPsid, senderName, message, commentId);
           }
         }
