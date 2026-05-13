@@ -92,39 +92,13 @@ async function replyOnComment(commentId, message) {
 }
 
 // ── Helper: Send Private Reply to Comment ────────────────
-// Works for ALL users - no need to message page first!
+// Falls back to comment reply for live video comments
 async function sendPrivateReply(commentId, message) {
-  try {
-    // IMPORTANT:
-    // Use FULL comment ID exactly from webhook
-    // Do NOT split commentId
-
-    console.log('📩 Sending private reply to comment:', commentId);
-
-    await axios.post(
-      `https://graph.facebook.com/v25.0/${commentId}/private_replies`,
-      {
-        message: message
-      },
-      {
-        params: {
-          access_token: PAGE_TOKEN
-        }
-      }
-    );
-
-    console.log(`✅ Private reply sent to comment ${commentId}`);
-    return true;
-
-  } catch (e) {
-    console.error(
-      '❌ Private reply error:',
-      e.response?.data || e.message
-    );
-
-    return false;
-  }
+  // Private reply not supported for live video comments
+  // Fall back to comment reply directly
+  await replyOnComment(commentId, message);
 }
+
 // ── Helper: Build order message ───────────────────────────
 function buildOrderMessage(userName, orders) {
   const lines = orders.map(o => {
@@ -133,7 +107,7 @@ function buildOrderMessage(userName, orders) {
     return `📦 កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
   }).join('\n');
   const total = orders.reduce((s,o) => s + ((o.qty||1) * (o.price||0)), 0);
-  return `✅ បានទទួលការបញ្ជាទិញ!\n\nជំរាបសួរបង👤 ${userName}\n━━━━━━━━━━━━━\n${lines}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${total.toFixed(2)}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!​ ABA:019181919`;
+  return `✅ បានទទួលការបញ្ជាទិញ!\n\n👤 ${userName}\n━━━━━━━━━━━━━\n${lines}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${total.toFixed(2)}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
 }
 
 // ── Helper: Parse comment ─────────────────────────────────
