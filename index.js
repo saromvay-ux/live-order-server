@@ -385,9 +385,24 @@ app.post('/webhook', async (req, res) => {
             }
 
             // Check if comment is from the active live video
-            const postId = val.post_id || val.video_id || '';
-            if (liveMode.liveVideoId && postId && !postId.includes(liveMode.liveVideoId) && commentId && !commentId.includes(liveMode.liveVideoId)) {
-              console.log(`⏸️ Comment not from active live (${liveMode.liveVideoId}) — ignoring`);
+            const postId   = val.post_id   || '';
+            const videoId  = val.video_id  || '';
+            const parentId = val.parent_id || '';
+            const liveId   = liveMode.liveVideoId;
+
+            console.log(`🔍 Checking: postId=${postId} videoId=${videoId} parentId=${parentId} commentId=${commentId} liveId=${liveId}`);
+
+            // Match if any ID contains the live video ID
+            const isFromLive = 
+              postId.includes(liveId) ||
+              videoId.includes(liveId) ||
+              commentId.includes(liveId) ||
+              parentId.includes(liveId) ||
+              postId === liveId ||
+              videoId === liveId;
+
+            if (liveId && !isFromLive) {
+              console.log(`⏸️ Comment not from active live (${liveId}) — ignoring`);
               return;
             }
 
