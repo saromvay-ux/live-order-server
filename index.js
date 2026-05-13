@@ -268,28 +268,47 @@ async function processComment(senderPsid, senderName, message, commentId) {
 // When customer messages page → find their orders by fbUserId → send summary
 async function handleIncomingMessage(psid, message) {
   try {
-    // Find orders by fbUserId (psid)
+    // Check last time we sent summary to this customer
+    const sentRef  = db.collection('message_sent_log').doc(psid);
+    const sentSnap = await sentRef.get();
+    const lastSentCount = sentSnap.exists ? (sentSnap.data().orderCount || 0) : -1;
+
+    // Find all orders by this customer
     const snap = await db.collection('orders')
       .where('fbUserId', '==', psid)
       .orderBy('createdAt', 'asc')
       .get();
 
     if (snap.empty) {
-      // No orders found — send welcome message
-      console.log(`No orders found for ${psid}`);
-      await sendMessengerMessage(psid,
-        'សួស្តី! 👋\nអរគុណដែលបានទំនាក់ទំនងមកកាន់យើង!\n\nប្រសិនបើអ្នកចង់បញ្ជាទិញ សូមរង់ចាំការ Live លក់របស់យើង! 🛍️'
-      );
+      // No orders — send welcome only if never contacted before
+      if (lastSentCount === -1) {
+        console.log('No orders for ' + psid + ' — sending welcome');
+        await sendMessengerMessage(psid,
+          'សួស្តី! 👋\nអរគុណដែលបានទំនាក់ទំនងមកកាន់យើង!\n\nប្រសិនបើអ្នកចង់បញ្ជាទិញ សូមរង់ចាំការ Live លក់របស់យើង! 🛍️'
+        );
+        await sentRef.set({ lastSentAt: new Date(), orderCount: 0 });
+      } else {
+        console.log('No orders for ' + psid + ' — skip (already welcomed)');
+      }
       return;
     }
 
-    // Orders found — send full summary
-    const orders   = snap.docs.map(d => d.data());
+    const orders = snap.docs.map(d => d.data());
+
+    // Only send if there are NEW orders since last send
+    if (orders.length <= lastSentCount) {
+      console.log('No new orders for ' + psid + ' (' + orders.length + ' orders, last sent: ' + lastSentCount + ') — skip');
+      return;
+    }
+
+    // New orders exist — send updated summary
     const userName = orders[0].userName || 'បងប្អូន';
     const msg      = buildOrderMessage(userName, orders);
-
     await sendMessengerMessage(psid, msg);
-    console.log('Order summary sent to ' + psid + ' (' + orders.length + ' orders)');
+
+    // Save last sent log
+    await sentRef.set({ lastSentAt: new Date(), orderCount: orders.length });
+    console.log('Summary sent to ' + psid + ' (' + orders.length + ' orders)');
 
   } catch(e) {
     console.error('handleIncomingMessage error:', e.message);
