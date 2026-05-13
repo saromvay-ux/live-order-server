@@ -17,6 +17,9 @@ initializeApp({
 
 const db = getFirestore();
 
+// ── Deduplication ─────────────────────────────────────────
+const seenMessageIds = new Set(); // prevent double processing
+
 // ── Config ────────────────────────────────────────────────
 const PAGE_TOKEN   = process.env.PAGE_TOKEN;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'liveorder_verify_2024';
@@ -339,6 +342,15 @@ app.post('/webhook', async (req, res) => {
         if (event.message && !event.message.is_echo) {
           const psid    = event.sender.id;
           const message = (event.message.text || '').trim();
+          const mid     = event.message.mid || '';
+
+          // Skip if already processed this message
+          if (mid && seenMessageIds.has(mid)) {
+            console.log(`⏭️ Duplicate message skipped: ${mid}`);
+            continue;
+          }
+          if (mid) seenMessageIds.add(mid);
+
           console.log(`📨 Messenger from ${psid}: ${message}`);
           await handleIncomingMessage(psid, message);
         }
