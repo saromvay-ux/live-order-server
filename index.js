@@ -386,23 +386,22 @@ app.post('/webhook', async (req, res) => {
 
             // Check if comment is from the active live video
             const postId   = val.post_id   || '';
-            const videoId  = val.video_id  || '';
-            const parentId = val.parent_id || '';
             const liveId   = liveMode.liveVideoId;
+            const livePostId = liveMode.livePostId || ''; // post ID linked to live video
 
-            console.log(`🔍 Checking: postId=${postId} videoId=${videoId} parentId=${parentId} commentId=${commentId} liveId=${liveId}`);
+            // Extract numeric post ID from postId (format: pageId_postId)
+            const numericPostId = postId.includes('_') ? postId.split('_')[1] : postId;
 
-            // Match if any ID contains the live video ID
-            const isFromLive = 
+            // Match against live video ID OR live post ID
+            const isFromLive =
+              numericPostId === liveId ||
+              numericPostId === livePostId ||
               postId.includes(liveId) ||
-              videoId.includes(liveId) ||
-              commentId.includes(liveId) ||
-              parentId.includes(liveId) ||
-              postId === liveId ||
-              videoId === liveId;
+              postId.includes(livePostId) ||
+              commentId.includes(liveId);
 
             if (liveId && !isFromLive) {
-              console.log(`⏸️ Comment not from active live (${liveId}) — ignoring`);
+              console.log(`⏸️ Not from active live — postId=${numericPostId} liveId=${liveId} livePostId=${livePostId}`);
               return;
             }
 
