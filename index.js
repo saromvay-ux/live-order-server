@@ -218,8 +218,9 @@ async function processComment(senderPsid, senderName, message, commentId) {
     if (senderPsid && senderPsid !== 'unknown') {
       const sent = await sendMessengerMessage(senderPsid, msg);
       if (!sent && commentId) {
-        // New customer - send via Private Reply (no need to message page first!)
-        await sendPrivateReply(commentId, msg);
+        // New customer - short comment reply
+        const shortMsg = `សួស្តី ${userName}! បានកូដ #${code} ✅\nសូម Chat មកផេក វានឹងផ្ញើរលម្អិត 🛍️`;
+        await replyOnComment(commentId, shortMsg);
       }
     } else if (commentId) {
       await replyOnComment(commentId, msg);
@@ -271,12 +272,14 @@ async function processComment(senderPsid, senderName, message, commentId) {
   if (senderPsid && senderPsid !== 'unknown') {
     const sent = await sendMessengerMessage(senderPsid, msg);
     if (!sent && commentId) {
-      // New customer - send via Private Reply (no need to message page first!)
-      await sendPrivateReply(commentId, msg);
+      // New customer - short comment reply
+      const shortMsg2 = `សួស្តី ${userName}! បានកូដ #${code} ✅\nសូម Chat មកផេក វានឹងផ្ញើរលម្អិត 🛍️`;
+      await replyOnComment(commentId, shortMsg2);
     }
   } else if (commentId) {
-    // No PSID - send via Private Reply
-    await sendPrivateReply(commentId, msg);
+    // No PSID - short comment reply
+    const shortMsg3 = `សួស្តី ${userName}! បានកូដ #${code} ✅\nសូម Chat មកផេក វានឹងផ្ញើរលម្អិត 🛍️`;
+    await replyOnComment(commentId, shortMsg3);
   }
 }
 
