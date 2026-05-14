@@ -273,12 +273,12 @@ async function processComment(senderPsid, senderName, message, commentId) {
     const sent = await sendMessengerMessage(senderPsid, msg);
     if (!sent && commentId) {
       // New customer - short comment reply
-      const shortMsg2 = `សួស្តី ${userName}! ទទួលបានកូដ #${code} ✅\nសូម Chat មេដៃចូលផេក ដើម្បីទទួលកូដឥវ៉ាន់ 🛍️`;
+      const shortMsg2 = `សួស្តី ${userName}! បានកូដ #${code} ✅\nសូម Chat មកផេក វានឹងផ្ញើរលម្អិត 🛍️`;
       await replyOnComment(commentId, shortMsg2);
     }
   } else if (commentId) {
     // No PSID - short comment reply
-    const shortMsg3 = `សួស្តី ${userName}! ទទួលបានកូដ #${code} ✅\nសូម Chat មេដៃចូលផេក ដើម្បីទទួលកូដឥវ៉ាន់ 🛍️`;
+    const shortMsg3 = `សួស្តី ${userName}! បានកូដ #${code} ✅\nសូម Chat មកផេក វានឹងផ្ញើរលម្អិត 🛍️`;
     await replyOnComment(commentId, shortMsg3);
   }
 }
