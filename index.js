@@ -18,7 +18,7 @@ initializeApp({
 const db = getFirestore();
 
 // ── Deduplication ─────────────────────────────────────────
-const seenMessageIds = new Set(); // prevent double processing
+const seenMessageIds = new Set();
 
 // ── Config ────────────────────────────────────────────────
 const PAGE_TOKEN   = process.env.PAGE_TOKEN;
@@ -31,7 +31,7 @@ async function getLiveMode() {
     if (!snap.exists) return null;
     const data = snap.data();
     if (!data.active) return null;
-    return data; // { active, liveVideoId, pageId }
+    return data;
   } catch(e) {
     return null;
   }
@@ -77,23 +77,51 @@ async function getUserOrders(userName) {
   return snap.docs.map(d => d.data());
 }
 
-// ── Helper: Send Messenger Message ────────────────────────
+// ── Helper: Send Messenger Message (via PSID) ─────────────
+// Works for customers who have messaged your page before
 async function sendMessengerMessage(psid, message) {
   try {
     await axios.post(
       `https://graph.facebook.com/v25.0/me/messages`,
-      { recipient: { id: psid }, message: { text: message }, messaging_type: 'RESPONSE' },
+      {
+        recipient: { id: psid },
+        message: { text: message },
+        messaging_type: 'RESPONSE'
+      },
       { params: { access_token: PAGE_TOKEN } }
     );
-    console.log(`✅ Messenger sent to ${psid}`);
+    console.log(`✅ Messenger DM sent to PSID: ${psid}`);
     return true;
   } catch(e) {
-    console.error('❌ Messenger error:', e.response?.data?.error?.message || e.message);
+    console.error('❌ Messenger DM error:', e.response?.data?.error?.message || e.message);
     return false;
   }
 }
 
-// ── Helper: Reply on Comment ──────────────────────────────
+// ── Helper: Send Private Reply (via Comment ID) ───────────
+// Works for ALL customers who comment — no prior messaging needed!
+// Uses Facebook Private Reply API — sends DM privately to commenter
+async function sendPrivateReply(commentId, message) {
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v25.0/me/messages`,
+      {
+        recipient: { comment_id: commentId },  // ← private reply via comment ID
+        message: { text: message },
+        messaging_type: 'RESPONSE'
+      },
+      { params: { access_token: PAGE_TOKEN } }
+    );
+    console.log(`✅ Private reply sent for comment: ${commentId}`);
+    return true;
+  } catch(e) {
+    console.error('❌ Private reply error:', e.response?.data?.error?.message || e.message);
+    return false;
+  }
+}
+
+// ── Helper: Reply Publicly on Comment ────────────────────
+// Last resort fallback — public comment reply
 async function replyOnComment(commentId, message) {
   try {
     await axios.post(
@@ -101,18 +129,12 @@ async function replyOnComment(commentId, message) {
       { message },
       { params: { access_token: PAGE_TOKEN } }
     );
-    console.log(`✅ Comment reply sent`);
+    console.log(`✅ Public comment reply sent`);
+    return true;
   } catch(e) {
     console.error('❌ Comment reply error:', e.response?.data?.error?.message || e.message);
+    return false;
   }
-}
-
-// ── Helper: Send Private Reply to Comment ────────────────
-// Falls back to comment reply for live video comments
-async function sendPrivateReply(commentId, message) {
-  // Private reply not supported for live video comments
-  // Fall back to comment reply directly
-  await replyOnComment(commentId, message);
 }
 
 // ── Helper: Build order message ───────────────────────────
@@ -122,18 +144,18 @@ function buildOrderMessage(userName, orders) {
     const price = o.price || 0;
     return `📦 កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
   }).join('\n');
-  const total = orders.reduce((s,o) => s + ((o.qty||1) * (o.price||0)), 0);
+  const total = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
   return `✅ បានទទួលការបញ្ជាទិញ!\n\n👤 ${userName}\n━━━━━━━━━━━━━\n${lines}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${total.toFixed(2)}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
 }
 
 // ── Helper: Parse comment ─────────────────────────────────
-// Valid: "34" → {code:34, qty:1}
-// Valid: "34=2" → {code:34, qty:2}
-// Invalid: "34x2", "34*2", "34-2" → null
+// Valid: "34"    → { code: 34, qty: 1 }
+// Valid: "34=2"  → { code: 34, qty: 2 }
+// Invalid: anything else → null
 function parseComment(text) {
   const trimmed = text.trim();
 
-  // Format: code=qty (ONLY = separator allowed)
+  // Format: code=qty
   const matchEq = trimmed.match(/^(\d+)=(\d+)$/);
   if (matchEq) {
     const code = parseInt(matchEq[1]);
@@ -142,14 +164,38 @@ function parseComment(text) {
     return { code, qty };
   }
 
-  // Format: code only (single number)
+  // Format: code only
   const matchNum = trimmed.match(/^(\d+)$/);
   if (matchNum) {
     return { code: parseInt(matchNum[1]), qty: 1 };
   }
 
-  // Everything else → reject
   return null;
+}
+
+// ── Helper: Smart Send ────────────────────────────────────
+// Strategy:
+// 1. Try sendMessengerMessage via PSID (existing customers)
+// 2. If fails → try sendPrivateReply via commentId (new customers) ✅
+// 3. If fails → fallback to public comment reply
+async function smartSend(senderPsid, commentId, message) {
+  // Step 1: Try DM via PSID
+  if (senderPsid && senderPsid !== 'unknown') {
+    const sent = await sendMessengerMessage(senderPsid, message);
+    if (sent) return; // ✅ Done!
+  }
+
+  // Step 2: Try Private Reply via commentId (works for ALL new customers!)
+  if (commentId) {
+    const sent = await sendPrivateReply(commentId, message);
+    if (sent) return; // ✅ Done!
+  }
+
+  // Step 3: Last resort — public comment reply (short message)
+  if (commentId) {
+    const shortMsg = `សួស្តី! ទទួលបានការបញ្ជាទិញ ✅\nសូម Chat មកផេក ដើម្បីទទួលព័ត៌មានលម្អិត 🛍️`;
+    await replyOnComment(commentId, shortMsg);
+  }
 }
 
 // ── Process Comment ───────────────────────────────────────
@@ -165,10 +211,8 @@ async function processComment(senderPsid, senderName, message, commentId) {
   // ── Check Stock Code first ────────────────────────────
   const stockCode = await getStockCode(code);
   if (stockCode) {
-    // Stock code found — handle stock logic
     if (stockCode.remainingQty <= 0) {
       console.log(`❌ Code #${code} is SOLD OUT`);
-      // Silent reject — no message
       await db.collection('rejected_orders').add({
         attemptedBy: userName,
         code, qty,
@@ -179,8 +223,7 @@ async function processComment(senderPsid, senderName, message, commentId) {
     }
 
     if (qty > stockCode.remainingQty) {
-      console.log(`❌ Not enough stock for code #${code}. Requested: ${qty}, Remaining: ${stockCode.remainingQty}`);
-      // Silent reject — no message
+      console.log(`❌ Not enough stock for #${code}. Requested: ${qty}, Remaining: ${stockCode.remainingQty}`);
       await db.collection('rejected_orders').add({
         attemptedBy: userName,
         code, qty,
@@ -208,35 +251,23 @@ async function processComment(senderPsid, senderName, message, commentId) {
       source: 'facebook_live',
       createdAt: new Date()
     });
-    console.log(`✅ Stock order saved: ${userName} → Code #${code} × ${qty} @ $${stockCode.price}`);
+    console.log(`✅ Stock order: ${userName} → #${code} × ${qty} @ $${stockCode.price}`);
 
-    // Build message
+    // ✅ Send message (smart: DM → private reply → public comment)
     const allOrders = await getUserOrders(userName);
     const msg = buildOrderMessage(userName, allOrders);
-
-    // Send Messenger or comment reply
-    if (senderPsid && senderPsid !== 'unknown') {
-      const sent = await sendMessengerMessage(senderPsid, msg);
-      if (!sent && commentId) {
-        // New customer - short comment reply
-        const shortMsg = `សួស្តី ${userName}! ទទួលបានកូដ #${code} ✅\nសូម Chatមេដៃចូលផេក ដើម្បីទទួលបានកូដឥវ៉ាន់ 🛍️`;
-        await replyOnComment(commentId, shortMsg);
-      }
-    } else if (commentId) {
-      await replyOnComment(commentId, msg);
-    }
+    await smartSend(senderPsid, commentId, msg);
     return;
   }
 
   // ── Check Price Range ─────────────────────────────────
-  // Price range only allows qty=1 (one owner per code)
   const price = await getPriceRangeForCode(code);
-  if (!price) return; // code not in any range — silent ignore
+  if (!price) return; // code not found — silent ignore
 
-  // Price range: reject if qty > 1
+  // Price range: only qty=1 allowed
   if (qty > 1) {
     console.log(`❌ Price range code #${code} only allows qty=1`);
-    return; // silent reject
+    return;
   }
 
   const owner = await getPriceRangeOwner(code);
@@ -263,71 +294,48 @@ async function processComment(senderPsid, senderName, message, commentId) {
     source: 'facebook_live',
     createdAt: new Date()
   });
-  console.log(`✅ Price range order saved: ${userName} → Code #${code} @ $${price}`);
+  console.log(`✅ Price range order: ${userName} → #${code} @ $${price}`);
 
-  // Build message & send
+  // ✅ Send message (smart: DM → private reply → public comment)
   const allOrders = await getUserOrders(userName);
   const msg = buildOrderMessage(userName, allOrders);
-
-  if (senderPsid && senderPsid !== 'unknown') {
-    const sent = await sendMessengerMessage(senderPsid, msg);
-    if (!sent && commentId) {
-      // New customer - short comment reply
-      const shortMsg2 = `សួស្តី ${userName}! ទទួលបានកូដ #${code} ✅\nសូម Chatមេដៃចូលផេក ដើម្បីទទួលបានកូដឥវ៉ាន់  🛍️`;
-      await replyOnComment(commentId, shortMsg2);
-    }
-  } else if (commentId) {
-    // No PSID - short comment reply
-    const shortMsg3 = `សួស្តី ${userName}! ទទួលបានកូដ #${code} ✅\nសូម Chatមេដៃចូលផេក ដើម្បីទទួលបានកូដឥវ៉ាន់  🛍️`;
-    await replyOnComment(commentId, shortMsg3);
-  }
+  await smartSend(senderPsid, commentId, msg);
 }
 
 // ── Handle Incoming Messenger Message ────────────────────
-// When customer messages page → find their orders by fbUserId → send summary
 async function handleIncomingMessage(psid, message) {
   try {
-    // Check last time we sent summary to this customer
     const sentRef  = db.collection('message_sent_log').doc(psid);
     const sentSnap = await sentRef.get();
     const lastSentCount = sentSnap.exists ? (sentSnap.data().orderCount || 0) : -1;
 
-    // Find all orders by this customer
     const snap = await db.collection('orders')
       .where('fbUserId', '==', psid)
       .orderBy('createdAt', 'asc')
       .get();
 
     if (snap.empty) {
-      // No orders — send welcome only if never contacted before
       if (lastSentCount === -1) {
-        console.log('No orders for ' + psid + ' — sending welcome');
         await sendMessengerMessage(psid,
           'សួស្តី! 👋\nអរគុណដែលបានទំនាក់ទំនងមកកាន់យើង!\n\nប្រសិនបើអ្នកចង់បញ្ជាទិញ សូមរង់ចាំការ Live លក់របស់យើង! 🛍️'
         );
         await sentRef.set({ lastSentAt: new Date(), orderCount: 0 });
-      } else {
-        console.log('No orders for ' + psid + ' — skip (already welcomed)');
       }
       return;
     }
 
     const orders = snap.docs.map(d => d.data());
 
-    // Only send if there are NEW orders since last send
     if (orders.length <= lastSentCount) {
-      console.log('No new orders for ' + psid + ' (' + orders.length + ' orders, last sent: ' + lastSentCount + ') — skip');
+      console.log(`No new orders for ${psid} — skip`);
       return;
     }
 
-    // New orders exist — send updated summary
     const userName = orders[0].userName || 'បងប្អូន';
     const msg      = buildOrderMessage(userName, orders);
     await sendMessengerMessage(psid, msg);
-
-    // Save last sent log
     await sentRef.set({ lastSentAt: new Date(), orderCount: orders.length });
-    console.log('Summary sent to ' + psid + ' (' + orders.length + ' orders)');
+    console.log(`Summary sent to ${psid} (${orders.length} orders)`);
 
   } catch(e) {
     console.error('handleIncomingMessage error:', e.message);
@@ -354,15 +362,16 @@ app.post('/webhook', async (req, res) => {
 
   if (body.object === 'page') {
     for (const entry of body.entry || []) {
+
+      // ── Messenger messages ──────────────────────────────
       for (const event of entry.messaging || []) {
         if (event.message && !event.message.is_echo) {
           const psid    = event.sender.id;
           const message = (event.message.text || '').trim();
           const mid     = event.message.mid || '';
 
-          // Skip if already processed this message
           if (mid && seenMessageIds.has(mid)) {
-            console.log(`⏭️ Duplicate message skipped: ${mid}`);
+            console.log(`⏭️ Duplicate skipped: ${mid}`);
             continue;
           }
           if (mid) seenMessageIds.add(mid);
@@ -371,6 +380,8 @@ app.post('/webhook', async (req, res) => {
           await handleIncomingMessage(psid, message);
         }
       }
+
+      // ── Feed / Live comments ────────────────────────────
       for (const change of entry.changes || []) {
         if (change.field === 'feed' || change.field === 'live_videos') {
           const val = change.value;
@@ -380,22 +391,20 @@ app.post('/webhook', async (req, res) => {
             const senderName = val.from?.name || 'User_' + (val.from?.id || 'unknown').slice(-6);
             const senderPsid = val.from?.id || 'unknown';
 
-            // Check Live Mode — only process comments from active live video
+            // Check Live Mode
             const liveMode = await getLiveMode();
             if (!liveMode) {
               console.log(`⏸️ Live Mode OFF — ignoring comment from ${senderName}`);
               return;
             }
 
-            // Check if comment is from the active live video
-            const postId   = val.post_id   || '';
-            const liveId   = liveMode.liveVideoId;
-            const livePostId = liveMode.livePostId || ''; // post ID linked to live video
+            // Check if comment is from active live video
+            const postId     = val.post_id || '';
+            const liveId     = liveMode.liveVideoId;
+            const livePostId = liveMode.livePostId || '';
 
-            // Extract numeric post ID from postId (format: pageId_postId)
             const numericPostId = postId.includes('_') ? postId.split('_')[1] : postId;
 
-            // Match against live video ID OR live post ID
             const isFromLive =
               numericPostId === liveId ||
               numericPostId === livePostId ||
@@ -404,7 +413,7 @@ app.post('/webhook', async (req, res) => {
               commentId.includes(liveId);
 
             if (liveId && !isFromLive) {
-              console.log(`⏸️ Not from active live — postId=${numericPostId} liveId=${liveId} livePostId=${livePostId}`);
+              console.log(`⏸️ Not from active live — postId=${numericPostId} liveId=${liveId}`);
               return;
             }
 
@@ -418,7 +427,11 @@ app.post('/webhook', async (req, res) => {
 
 // ── Health Check ──────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'LiveOrder Server running! 🔴', time: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    message: 'LiveOrder Server running! 🔴',
+    time: new Date().toISOString()
+  });
 });
 
 const PORT = process.env.PORT || 3000;
