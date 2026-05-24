@@ -37,18 +37,6 @@ async function getLiveMode() {
   }
 }
 
-// ── Helper: Get Shop Profile Payment Details ──────────────
-async function getShopProfile() {
-  try {
-    // Pulls your dynamic profile updates from your admin settings panel
-    const snap = await db.collection('settings').doc('shop_profile').get();
-    if (!snap.exists) return { phone: "", aba: "", acleda: "" };
-    return snap.data();
-  } catch(e) {
-    return { phone: "", aba: "", acleda: "" };
-  }
-}
-
 // ── Helper: Get price range for code ─────────────────────
 async function getPriceRangeForCode(code) {
   const snap = await db.collection('price_ranges').get();
@@ -70,28 +58,27 @@ async function getStockCode(code) {
 }
 
 // ── Helper: Get owner of price range code ─────────────────
-async function getPriceRangeOwner(code, liveVideoId) {
+async function getPriceRangeOwner(code) {
   const snap = await db.collection('orders')
     .where('code', '==', code)
     .where('type', '==', 'price_range')
-    .where('liveVideoId', '==', liveVideoId) // 🌟 Isolated check by stream
     .limit(1)
     .get();
   if (snap.empty) return null;
   return snap.docs[0].data().userName;
 }
 
-// ── Helper: Get all orders for user IN THIS STREAM ONLY ───
-async function getUserOrders(userName, liveVideoId) {
+// ── Helper: Get all orders for user ──────────────────────
+async function getUserOrders(userName) {
   const snap = await db.collection('orders')
     .where('userName', '==', userName)
-    .where('liveVideoId', '==', liveVideoId) // 🌟 This keeps different streams separated!
     .orderBy('createdAt', 'asc')
     .get();
   return snap.docs.map(d => d.data());
 }
 
 // ── Helper: Send Messenger Message (via PSID) ─────────────
+// Works for customers who have messaged your page before
 async function sendMessengerMessage(psid, message) {
   try {
     await axios.post(
@@ -112,12 +99,14 @@ async function sendMessengerMessage(psid, message) {
 }
 
 // ── Helper: Send Private Reply (via Comment ID) ───────────
+// Works for ALL customers who comment — no prior messaging needed!
+// Uses Facebook Private Reply API — sends DM privately to commenter
 async function sendPrivateReply(commentId, message) {
   try {
     await axios.post(
       `https://graph.facebook.com/v25.0/me/messages`,
       {
-        recipient: { comment_id: commentId },
+        recipient: { comment_id: commentId },  // ← private reply via comment ID
         message: { text: message },
         messaging_type: 'RESPONSE'
       },
@@ -132,6 +121,7 @@ async function sendPrivateReply(commentId, message) {
 }
 
 // ── Helper: Reply Publicly on Comment ────────────────────
+// Last resort fallback — public comment reply
 async function replyOnComment(commentId, message) {
   try {
     await axios.post(
@@ -148,30 +138,20 @@ async function replyOnComment(commentId, message) {
 }
 
 // ── Helper: Build order message ───────────────────────────
-function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAcleda) {
-  const deliveryFee = 2.00; 
-  const exchangeRate = 4000; // 1$ = 4000 Riel
-
-  const phone  = sellerPhone  || "";
-  const aba    = sellerAba    || "";
-  const acleda = sellerAcleda || "";
-
+function buildOrderMessage(userName, orders) {
   const lines = orders.map(o => {
     const qty   = o.qty   || 1;
     const price = o.price || 0;
     return `📦 កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
   }).join('\n');
-  
-  const subtotal = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
-  const totalAllUsd = subtotal + deliveryFee;
-  const totalAllRiel = totalAllUsd * exchangeRate;
-  const formattedRiel = totalAllRiel.toLocaleString('en-US');
-
-  // 🌟 Clean layout placing payment attributes directly under totals
-  return `🙏សួរស្តីបង!👤 ${userName}\n✅បងបានបញ្ជាទិញ\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAllUsd.toFixed(2)}\n💵 សរុបទាំងអស់: ${formattedRiel} រៀល\n📞 លេខទូរស័ព្ទ: ${phone}\n🏦 គណនី ABA: ${aba}\n✨ គណនី ACLEDA: ${acleda}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
+  const total = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
+  return `✅ បានទទួលការបញ្ជាទិញ!\n\n👤 ${userName}\n━━━━━━━━━━━━━\n${lines}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${total.toFixed(2)}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
 }
 
 // ── Helper: Parse comment ─────────────────────────────────
+// Valid: "34"    → { code: 34, qty: 1 }
+// Valid: "34=2"  → { code: 34, qty: 2 }
+// Invalid: anything else → null
 function parseComment(text) {
   const trimmed = text.trim();
 
@@ -194,17 +174,24 @@ function parseComment(text) {
 }
 
 // ── Helper: Smart Send ────────────────────────────────────
+// Strategy:
+// 1. Try sendMessengerMessage via PSID (existing customers)
+// 2. If fails → try sendPrivateReply via commentId (new customers) ✅
+// 3. If fails → fallback to public comment reply
 async function smartSend(senderPsid, commentId, message) {
+  // Step 1: Try DM via PSID
   if (senderPsid && senderPsid !== 'unknown') {
     const sent = await sendMessengerMessage(senderPsid, message);
-    if (sent) return;
+    if (sent) return; // ✅ Done!
   }
 
+  // Step 2: Try Private Reply via commentId (works for ALL new customers!)
   if (commentId) {
     const sent = await sendPrivateReply(commentId, message);
-    if (sent) return;
+    if (sent) return; // ✅ Done!
   }
 
+  // Step 3: Last resort — public comment reply (short message)
   if (commentId) {
     const shortMsg = `សួស្តី! ទទួលបានការបញ្ជាទិញ ✅\nសូម Chat មកផេក ដើម្បីទទួលព័ត៌មានលម្អិត 🛍️`;
     await replyOnComment(commentId, shortMsg);
@@ -212,17 +199,14 @@ async function smartSend(senderPsid, commentId, message) {
 }
 
 // ── Process Comment ───────────────────────────────────────
-async function processComment(senderPsid, senderName, message, commentId, liveVideoId) {
-  console.log(`💬 ${senderName} (${senderPsid}): ${message} [Stream: ${liveVideoId}]`);
+async function processComment(senderPsid, senderName, message, commentId) {
+  console.log(`💬 ${senderName} (${senderPsid}): ${message}`);
 
   const parsed = parseComment(message);
-  if (!parsed) return;
+  if (!parsed) return; // invalid format — silent ignore
 
   const { code, qty } = parsed;
   const userName = senderName || 'User_' + senderPsid.slice(-6);
-
-  // Fetch shop credentials for invoices
-  const profile = await getShopProfile();
 
   // ── Check Stock Code first ────────────────────────────
   const stockCode = await getStockCode(code);
@@ -231,7 +215,6 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
       console.log(`❌ Code #${code} is SOLD OUT`);
       await db.collection('rejected_orders').add({
         attemptedBy: userName,
-        liveVideoId,
         code, qty,
         reason: 'SOLD_OUT',
         createdAt: new Date()
@@ -243,7 +226,6 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
       console.log(`❌ Not enough stock for #${code}. Requested: ${qty}, Remaining: ${stockCode.remainingQty}`);
       await db.collection('rejected_orders').add({
         attemptedBy: userName,
-        liveVideoId,
         code, qty,
         reason: 'INSUFFICIENT_STOCK',
         remainingQty: stockCode.remainingQty,
@@ -252,17 +234,16 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
       return;
     }
 
-    // Deduct stock atomically
+    // ✅ Deduct stock atomically
     await db.collection('stock_codes').doc(stockCode.id).update({
       remainingQty: FieldValue.increment(-qty),
       soldQty: FieldValue.increment(qty)
     });
 
-    // Save order tagged with this specific live session ID
+    // ✅ Save order
     await db.collection('orders').add({
       userName,
       fbUserId: senderPsid,
-      liveVideoId, // 🌟 Tagged
       code,
       price: stockCode.price,
       qty,
@@ -272,27 +253,28 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
     });
     console.log(`✅ Stock order: ${userName} → #${code} × ${qty} @ $${stockCode.price}`);
 
-    const allOrders = await getUserOrders(userName, liveVideoId);
-    const msg = buildOrderMessage(userName, allOrders, profile.phone, profile.aba, profile.acleda);
+    // ✅ Send message (smart: DM → private reply → public comment)
+    const allOrders = await getUserOrders(userName);
+    const msg = buildOrderMessage(userName, allOrders);
     await smartSend(senderPsid, commentId, msg);
     return;
   }
 
   // ── Check Price Range ─────────────────────────────────
   const price = await getPriceRangeForCode(code);
-  if (!price) return;
+  if (!price) return; // code not found — silent ignore
 
+  // Price range: only qty=1 allowed
   if (qty > 1) {
     console.log(`❌ Price range code #${code} only allows qty=1`);
     return;
   }
 
-  const owner = await getPriceRangeOwner(code, liveVideoId);
+  const owner = await getPriceRangeOwner(code);
   if (owner) {
-    console.log(`❌ Code #${code} already taken by ${owner} in this stream`);
+    console.log(`❌ Code #${code} already taken by ${owner}`);
     await db.collection('rejected_orders').add({
       attemptedBy: userName,
-      liveVideoId,
       code,
       ownedBy: owner,
       reason: 'CODE_TAKEN',
@@ -301,11 +283,10 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
     return;
   }
 
-  // Save price range order tagged with this specific live session ID
+  // ✅ Save price range order
   await db.collection('orders').add({
     userName,
     fbUserId: senderPsid,
-    liveVideoId, // 🌟 Tagged
     code,
     price,
     qty: 1,
@@ -315,29 +296,23 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
   });
   console.log(`✅ Price range order: ${userName} → #${code} @ $${price}`);
 
-  const allOrders = await getUserOrders(userName, liveVideoId);
-  const msg = buildOrderMessage(userName, allOrders, profile.phone, profile.aba, profile.acleda);
+  // ✅ Send message (smart: DM → private reply → public comment)
+  const allOrders = await getUserOrders(userName);
+  const msg = buildOrderMessage(userName, allOrders);
   await smartSend(senderPsid, commentId, msg);
 }
 
 // ── Handle Incoming Messenger Message ────────────────────
 async function handleIncomingMessage(psid, message) {
   try {
-    const liveMode = await getLiveMode();
-    const activeVideoId = liveMode ? liveMode.liveVideoId : "general";
-
     const sentRef  = db.collection('message_sent_log').doc(psid);
     const sentSnap = await sentRef.get();
     const lastSentCount = sentSnap.exists ? (sentSnap.data().orderCount || 0) : -1;
 
-    // Filters for current stream context so summary text doesn't compound old items
     const snap = await db.collection('orders')
       .where('fbUserId', '==', psid)
-      .where('liveVideoId', '==', activeVideoId)
       .orderBy('createdAt', 'asc')
       .get();
-
-    const profile = await getShopProfile();
 
     if (snap.empty) {
       if (lastSentCount === -1) {
@@ -357,7 +332,7 @@ async function handleIncomingMessage(psid, message) {
     }
 
     const userName = orders[0].userName || 'បងប្អូន';
-    const msg      = buildOrderMessage(userName, orders, profile.phone, profile.aba, profile.acleda);
+    const msg      = buildOrderMessage(userName, orders);
     await sendMessengerMessage(psid, msg);
     await sentRef.set({ lastSentAt: new Date(), orderCount: orders.length });
     console.log(`Summary sent to ${psid} (${orders.length} orders)`);
@@ -425,7 +400,7 @@ app.post('/webhook', async (req, res) => {
 
             // Check if comment is from active live video
             const postId     = val.post_id || '';
-            const liveId     = liveMode.liveVideoId || 'no_active_id';
+            const liveId     = liveMode.liveVideoId;
             const livePostId = liveMode.livePostId || '';
 
             const numericPostId = postId.includes('_') ? postId.split('_')[1] : postId;
@@ -442,8 +417,7 @@ app.post('/webhook', async (req, res) => {
               return;
             }
 
-            // 🌟 Passes the liveId parameter safely to distinguish streams
-            await processComment(senderPsid, senderName, message, commentId, liveId);
+            await processComment(senderPsid, senderName, message, commentId);
           }
         }
       }
