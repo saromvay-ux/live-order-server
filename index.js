@@ -138,28 +138,16 @@ async function replyOnComment(commentId, message) {
 }
 
 // ── Helper: Build order message ───────────────────────────
-function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAcleda) {
-  const deliveryFee = 2.00; 
-  const exchangeRate = 4000; // 1$ = 4000 Riel
-  
+function buildOrderMessage(userName, orders) {
   const lines = orders.map(o => {
     const qty   = o.qty   || 1;
     const price = o.price || 0;
     return `📦 កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
   }).join('\n');
-  
-  const subtotal = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
-  const totalAllUsd = subtotal + deliveryFee;
-  
-  // Calculate total in Riel
-  const totalAllRiel = totalAllUsd * exchangeRate;
-
-  // Format Riel with commas (e.g., 40,000) for clean reading
-  const formattedRiel = totalAllRiel.toLocaleString('en-US');
-
-  // Phone, ABA, and ACLEDA are now placed right below the total money rows
-  return `🙏សួរស្តីបង!👤 ${userName}\n✅បងបានបញ្ជាទិញ\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAllUsd.toFixed(2)}\n💵 សរុបទាំងអស់: ${formattedRiel} រៀល\n📞 លេខទូរស័ព្ទ: ${sellerPhone}\n🏦 គណនី ABA: ${sellerAba}\n✨ គណនី ACLEDA: ${sellerAcleda}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
+  const total = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
+  return `✅ បានទទួលការបញ្ជាទិញ!\n\n👤 ${userName}\n━━━━━━━━━━━━━\n${lines}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${total.toFixed(2)}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
 }
+
 // ── Helper: Parse comment ─────────────────────────────────
 // Valid: "34"    → { code: 34, qty: 1 }
 // Valid: "34=2"  → { code: 34, qty: 2 }
