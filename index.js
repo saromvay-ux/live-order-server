@@ -41,10 +41,10 @@ async function getLiveMode() {
 async function getShopProfile() {
   try {
     const snap = await db.collection('settings').doc('shop_profile').get();
-    if (!snap.exists) return { phone: "", aba: "", acleda: "" };
+    if (!snap.exists) return { phone: "", aba: "", aclida: "" };
     return snap.data();
   } catch(e) {
-    return { phone: "", aba: "", acleda: "" };
+    return { phone: "", aba: "", aclida: "" };
   }
 }
 
@@ -166,7 +166,7 @@ function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAcled
 
   const phone  = sellerPhone  || "";
   const aba    = sellerAba    || "";
-  const acleda = sellerAcleda || "";
+  const aclida = sellerAclida || "";
 
   const lines = orders.map(o => {
     const qty   = o.qty   || 1;
@@ -372,7 +372,7 @@ async function handleIncomingMessage(psid, message) {
     }
 
     const userName = orders[0].userName || 'បងប្អូន';
-    const msg      = buildOrderMessage(userName, orders, profile.phone, profile.aba, profile.acleda);
+    const msg      = buildOrderMessage(userName, orders, profile.phone, profile.aba, profile.aclida);
     await sendMessengerMessage(psid, msg);
     await sentRef.set({ lastSentAt: new Date(), orderCount: orders.length });
     console.log(`Summary sent to ${psid} (${orders.length} orders)`);
