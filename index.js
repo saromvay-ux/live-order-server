@@ -199,7 +199,7 @@ async function smartSend(senderPsid, commentId, message) {
 }
 
 // ── Process Comment ───────────────────────────────────────
-async function processComment(senderPsid, senderName, message, commentId) {
+async function processComment(senderPsid, senderName, message, commentId,liveVideoId) {
   console.log(`💬 ${senderName} (${senderPsid}): ${message}`);
 
   const parsed = parseComment(message);
@@ -244,6 +244,7 @@ async function processComment(senderPsid, senderName, message, commentId) {
     await db.collection('orders').add({
       userName,
       fbUserId: senderPsid,
+      liveVideoId: liveVideoId,
       code,
       price: stockCode.price,
       qty,
@@ -287,6 +288,7 @@ async function processComment(senderPsid, senderName, message, commentId) {
   await db.collection('orders').add({
     userName,
     fbUserId: senderPsid,
+    liveVideoId: liveVideoId,
     code,
     price,
     qty: 1,
