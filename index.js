@@ -139,13 +139,21 @@ async function replyOnComment(commentId, message) {
 
 // ── Helper: Build order message ───────────────────────────
 function buildOrderMessage(userName, orders) {
+  const deliveryFee = 2.00; // Added $2 delivery fee
+  
   const lines = orders.map(o => {
     const qty   = o.qty   || 1;
     const price = o.price || 0;
     return `📦 កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
   }).join('\n');
-  const total = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
-  return `✅ បានទទួលការបញ្ជាទិញ!\n\n👤 ${userName}\n━━━━━━━━━━━━━\n${lines}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${total.toFixed(2)}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
+  
+  // Calculate subtotal of items
+  const subtotal = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
+  
+  // Calculate total including delivery
+  const totalAll = subtotal + deliveryFee;
+
+  return `✅ បានទទួលការបញ្ជាទិញ!\n\n👤 ${userName}\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAll.toFixed(2)}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
 }
 
 // ── Helper: Parse comment ─────────────────────────────────
