@@ -139,7 +139,8 @@ async function replyOnComment(commentId, message) {
 
 // ── Helper: Build order message ───────────────────────────
 function buildOrderMessage(userName, orders) {
-  const deliveryFee = 2.00; // Added $2 delivery fee
+  const deliveryFee = 2.00; 
+  const exchangeRate = 4000; // 1$ = 4000 Riel
   
   const lines = orders.map(o => {
     const qty   = o.qty   || 1;
@@ -147,13 +148,16 @@ function buildOrderMessage(userName, orders) {
     return `📦 កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
   }).join('\n');
   
-  // Calculate subtotal of items
   const subtotal = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
+  const totalAllUsd = subtotal + deliveryFee;
   
-  // Calculate total including delivery
-  const totalAll = subtotal + deliveryFee;
+  // Calculate total in Riel
+  const totalAllRiel = totalAllUsd * exchangeRate;
 
-  return `✅ បានទទួលការបញ្ជាទិញ!\n\n👤 ${userName}\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAll.toFixed(2)}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
+  // Format Riel with commas (e.g., 40,000) for clean reading
+  const formattedRiel = totalAllRiel.toLocaleString('en-US');
+
+  return `🙏សួរស្តីបង!👤 ${userName}\nបងបានបញ្ជាទិញ\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAllUsd.toFixed(2)}\n calculation សរុបទាំងអស់: ${formattedRiel} រៀល\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
 }
 
 // ── Helper: Parse comment ─────────────────────────────────
