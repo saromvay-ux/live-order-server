@@ -200,7 +200,10 @@ async function smartSend(senderPsid, commentId, message) {
 
 // ── Process Comment ───────────────────────────────────────
 async function processComment(senderPsid, senderName, message, commentId,liveVideoId) {
-  console.log(`💬 ${senderName} (${senderPsid}): ${message}`);
+  console.log(`💬 ${senderName} (${senderPsid}): ${message} [Stream: ${liveVideoId}]`);
+
+  // 🌟 THE FIX: If liveVideoId is empty/undefined, default to "general" so Firestore never crashes!
+  const activeLiveId = liveVideoId || "general";
 
   const parsed = parseComment(message);
   if (!parsed) return; // invalid format — silent ignore
@@ -244,7 +247,7 @@ async function processComment(senderPsid, senderName, message, commentId,liveVid
     await db.collection('orders').add({
       userName,
       fbUserId: senderPsid,
-      liveVideoId: liveVideoId,
+      liveVideoId: activeLiveId,
       code,
       price: stockCode.price,
       qty,
@@ -288,7 +291,7 @@ async function processComment(senderPsid, senderName, message, commentId,liveVid
   await db.collection('orders').add({
     userName,
     fbUserId: senderPsid,
-    liveVideoId: liveVideoId,
+    liveVideoId: activeLiveId,
     code,
     price,
     qty: 1,
