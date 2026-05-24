@@ -179,7 +179,7 @@ function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAclid
   const totalAllRiel = totalAllUsd * exchangeRate;
   const formattedRiel = totalAllRiel.toLocaleString('en-US');
 
-  return `🙏សួរស្តីបង!👤 ${userName}\n✅បងបានបញ្ជាទិញ\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAllUsd.toFixed(2)}\n💵 សរុបទាំងអស់: ${formattedRiel} រៀល\n📞 លេខទូរស័ព្ទ: ${phone}\n🏦 គណនី ABA: ${aba}\n✨ គណនី ACLEDA: ${acleda}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
+  return `🙏សួរស្តីបង!👤 ${userName}\n✅បងបានបញ្ជាទិញ\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAllUsd.toFixed(2)}\n💵 សរុបទាំងអស់: ${formattedRiel} រៀល\n📞 លេខទូរស័ព្ទ: ${phone}\n🏦 គណនី ABA: ${aba}\n✨ គណនី ACLEDA: ${aclida}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
 }
 
 // ── Helper: Parse comment ─────────────────────────────────
@@ -285,7 +285,7 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
     console.log(`✅ Stock order: ${userName} → #${code} × ${qty} @ $${stockCode.price}`);
 
     const allOrders = await getUserOrders(userName, activeLiveId);
-    const msg = buildOrderMessage(userName, allOrders, profile.phone, profile.aba, profile.acleda);
+    const msg = buildOrderMessage(userName, allOrders, profile.phone, profile.aba, profile.aclida);
     await smartSend(senderPsid, commentId, msg);
     return;
   }
@@ -328,7 +328,7 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
   console.log(`✅ Price range order: ${userName} → #${code} @ $${price}`);
 
   const allOrders = await getUserOrders(userName, activeLiveId);
-  const msg = buildOrderMessage(userName, allOrders, profile.phone, profile.aba, profile.acleda);
+  const msg = buildOrderMessage(userName, allOrders, profile.phone, profile.aba, profile.aclida);
   await smartSend(senderPsid, commentId, msg);
 }
 
