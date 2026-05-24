@@ -160,7 +160,7 @@ async function replyOnComment(commentId, message) {
 }
 
 // ── Helper: Build order message ───────────────────────────
-function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAcleda) {
+function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAclida) {
   const deliveryFee = 2.00; 
   const exchangeRate = 4000; // 1$ = 4000 Riel
 
