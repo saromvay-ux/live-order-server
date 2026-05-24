@@ -69,9 +69,10 @@ async function getPriceRangeOwner(code) {
 }
 
 // ── Helper: Get all orders for user ──────────────────────
-async function getUserOrders(userName) {
+async function getUserOrders(userName, liveVideoId) {
   const snap = await db.collection('orders')
     .where('userName', '==', userName)
+    .where('liveVideoId', '==', liveVideoId)
     .orderBy('createdAt', 'asc')
     .get();
   return snap.docs.map(d => d.data());
@@ -244,6 +245,7 @@ async function processComment(senderPsid, senderName, message, commentId) {
     await db.collection('orders').add({
       userName,
       fbUserId: senderPsid,
+      liveVideoId: liveMode.liveVideoId,
       code,
       price: stockCode.price,
       qty,
@@ -287,6 +289,7 @@ async function processComment(senderPsid, senderName, message, commentId) {
   await db.collection('orders').add({
     userName,
     fbUserId: senderPsid,
+    liveVideoId: liveMode.liveVideoId,
     code,
     price,
     qty: 1,
