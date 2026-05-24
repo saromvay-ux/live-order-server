@@ -245,7 +245,7 @@ async function processComment(senderPsid, senderName, message, commentId) {
     await db.collection('orders').add({
       userName,
       fbUserId: senderPsid,
-      liveVideoId: liveMode.liveVideoId,
+      liveVideoId: liveMode,
       code,
       price: stockCode.price,
       qty,
@@ -289,7 +289,7 @@ async function processComment(senderPsid, senderName, message, commentId) {
   await db.collection('orders').add({
     userName,
     fbUserId: senderPsid,
-    liveVideoId: liveMode.liveVideoId,
+    liveVideoId: liveMode,
     code,
     price,
     qty: 1,
