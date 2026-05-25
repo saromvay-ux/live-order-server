@@ -24,6 +24,51 @@ const seenMessageIds = new Set();
 const PAGE_TOKEN   = process.env.PAGE_TOKEN;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'liveorder_verify_2024';
 
+// ── Rate Limiting ─────────────────────────────────────────
+// Prevents spam/abuse on webhook endpoint
+// Allows up to 60 requests per minute per IP
+// Facebook's real webhook never hits this limit
+const rateLimitMap = new Map(); // ip → { count, resetTime }
+const RATE_LIMIT_MAX      = 60;   // max requests
+const RATE_LIMIT_WINDOW   = 60 * 1000; // per 60 seconds
+
+function isRateLimited(ip) {
+  const now  = Date.now();
+  const data = rateLimitMap.get(ip);
+
+  if (!data || now > data.resetTime) {
+    // New window — reset counter
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return false;
+  }
+
+  data.count++;
+  if (data.count > RATE_LIMIT_MAX) {
+    console.warn(`⚠️ Rate limit exceeded for IP: ${ip} (${data.count} requests)`);
+    return true;
+  }
+  return false;
+}
+
+// Clean up old entries every 5 minutes to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of rateLimitMap.entries()) {
+    if (now > data.resetTime) rateLimitMap.delete(ip);
+  }
+}, 5 * 60 * 1000);
+
+// ── Rate limit middleware for webhook only ────────────────
+function webhookRateLimit(req, res, next) {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+           || req.socket?.remoteAddress
+           || 'unknown';
+  if (isRateLimited(ip)) {
+    return res.status(429).json({ error: 'Too many requests' });
+  }
+  next();
+}
+
 // ── Helper: Get Live Mode Status ─────────────────────────
 async function getLiveMode() {
   try {
@@ -74,32 +119,30 @@ async function getPriceRangeOwner(code, liveVideoId) {
     .where('code', '==', code)
     .where('type', '==', 'price_range')
     .get();
-    
+
   if (snap.empty) return null;
-  
-  // Filter by matching stream ID in memory to ensure separate stream ownership
+
   const targetLiveId = liveVideoId || "general";
   const match = snap.docs
     .map(d => d.data())
     .find(order => order.liveVideoId === targetLiveId);
-    
+
   return match ? match.userName : null;
 }
 
-// ── Helper: Get all orders for user IN THIS STREAM ONLY (Safe Memory Filter) ───
+// ── Helper: Get all orders for user IN THIS STREAM ONLY ───
 async function getUserOrders(userName, liveVideoId) {
   const snap = await db.collection('orders')
     .where('userName', '==', userName)
     .get();
-  
+
   if (snap.empty) return [];
 
-  // Match fallback strings accurately so streams isolate cleanly
   const targetLiveId = liveVideoId || "general";
 
   return snap.docs
     .map(d => d.data())
-    .filter(order => order.liveVideoId === targetLiveId) 
+    .filter(order => order.liveVideoId === targetLiveId)
     .sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 }
 
@@ -124,6 +167,7 @@ async function sendMessengerMessage(psid, message) {
 }
 
 // ── Helper: Send Private Reply (via Comment ID) ───────────
+// Works for ALL customers who comment — no prior messaging needed!
 async function sendPrivateReply(commentId, message) {
   try {
     await axios.post(
@@ -161,22 +205,21 @@ async function replyOnComment(commentId, message) {
 
 // ── Helper: Build order message ───────────────────────────
 function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAclida) {
-  const deliveryFee = 2.00; 
-  const exchangeRate = 4000; // 1$ = 4000 Riel
-
-  const phone  = sellerPhone  || "";
-  const aba    = sellerAba    || "";
-  const aclida = sellerAclida || "";
+  const deliveryFee    = 2.00;
+  const exchangeRate   = 4000;
+  const phone          = sellerPhone  || "";
+  const aba            = sellerAba    || "";
+  const aclida         = sellerAclida || "";
 
   const lines = orders.map(o => {
     const qty   = o.qty   || 1;
     const price = o.price || 0;
     return `📦 កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
   }).join('\n');
-  
-  const subtotal = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
-  const totalAllUsd = subtotal + deliveryFee;
-  const totalAllRiel = totalAllUsd * exchangeRate;
+
+  const subtotal      = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
+  const totalAllUsd   = subtotal + deliveryFee;
+  const totalAllRiel  = totalAllUsd * exchangeRate;
   const formattedRiel = totalAllRiel.toLocaleString('en-US');
 
   return `🙏សួរស្តីបង!👤 ${userName}\n✅បងបានបញ្ជាទិញ\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAllUsd.toFixed(2)}\n💵 សរុបទាំងអស់: ${formattedRiel} រៀល\n📞 លេខទូរស័ព្ទ: ${phone}\n🏦 គណនី ABA: ${aba}\n✨ គណនី ACLEDA: ${aclida}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
@@ -186,7 +229,6 @@ function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAclid
 function parseComment(text) {
   const trimmed = text.trim();
 
-  // Format: code=qty
   const matchEq = trimmed.match(/^(\d+)=(\d+)$/);
   if (matchEq) {
     const code = parseInt(matchEq[1]);
@@ -195,7 +237,6 @@ function parseComment(text) {
     return { code, qty };
   }
 
-  // Format: code only
   const matchNum = trimmed.match(/^(\d+)$/);
   if (matchNum) {
     return { code: parseInt(matchNum[1]), qty: 1 };
@@ -205,6 +246,9 @@ function parseComment(text) {
 }
 
 // ── Helper: Smart Send ────────────────────────────────────
+// 1. Try DM via PSID (existing customers)
+// 2. Try Private Reply via commentId (new customers) ✅
+// 3. Fallback to public comment reply
 async function smartSend(senderPsid, commentId, message) {
   if (senderPsid && senderPsid !== 'unknown') {
     const sent = await sendMessengerMessage(senderPsid, message);
@@ -224,8 +268,7 @@ async function smartSend(senderPsid, commentId, message) {
 
 // ── Process Comment ───────────────────────────────────────
 async function processComment(senderPsid, senderName, message, commentId, liveVideoId) {
-  // 🌟 Safety fallback fallback variable so it never triggers undefined crashes
-  const activeLiveId = liveVideoId || "general"; 
+  const activeLiveId = liveVideoId || "general";
   console.log(`💬 ${senderName} (${senderPsid}): ${message} [Stream: ${activeLiveId}]`);
 
   const parsed = parseComment(message);
@@ -233,8 +276,7 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
 
   const { code, qty } = parsed;
   const userName = senderName || 'User_' + senderPsid.slice(-6);
-
-  const profile = await getShopProfile();
+  const profile  = await getShopProfile();
 
   // ── Check Stock Code first ────────────────────────────
   const stockCode = await getStockCode(code);
@@ -242,11 +284,8 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
     if (stockCode.remainingQty <= 0) {
       console.log(`❌ Code #${code} is SOLD OUT`);
       await db.collection('rejected_orders').add({
-        attemptedBy: userName,
-        liveVideoId: activeLiveId,
-        code, qty,
-        reason: 'SOLD_OUT',
-        createdAt: new Date()
+        attemptedBy: userName, liveVideoId: activeLiveId,
+        code, qty, reason: 'SOLD_OUT', createdAt: new Date()
       });
       return;
     }
@@ -254,32 +293,23 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
     if (qty > stockCode.remainingQty) {
       console.log(`❌ Not enough stock for #${code}. Requested: ${qty}, Remaining: ${stockCode.remainingQty}`);
       await db.collection('rejected_orders').add({
-        attemptedBy: userName,
-        liveVideoId: activeLiveId,
-        code, qty,
-        reason: 'INSUFFICIENT_STOCK',
-        remainingQty: stockCode.remainingQty,
-        createdAt: new Date()
+        attemptedBy: userName, liveVideoId: activeLiveId,
+        code, qty, reason: 'INSUFFICIENT_STOCK',
+        remainingQty: stockCode.remainingQty, createdAt: new Date()
       });
       return;
     }
 
-    // Deduct stock atomically
     await db.collection('stock_codes').doc(stockCode.id).update({
       remainingQty: FieldValue.increment(-qty),
       soldQty: FieldValue.increment(qty)
     });
 
-    // Save order tagged with active stream context
     await db.collection('orders').add({
-      userName,
-      fbUserId: senderPsid,
-      liveVideoId: activeLiveId, 
-      code,
-      price: stockCode.price,
-      qty,
-      type: 'stock_code',
-      source: 'facebook_live',
+      userName, fbUserId: senderPsid,
+      liveVideoId: activeLiveId,
+      code, price: stockCode.price, qty,
+      type: 'stock_code', source: 'facebook_live',
       createdAt: new Date()
     });
     console.log(`✅ Stock order: ${userName} → #${code} × ${qty} @ $${stockCode.price}`);
@@ -303,26 +333,18 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
   if (owner) {
     console.log(`❌ Code #${code} already taken by ${owner} in this stream`);
     await db.collection('rejected_orders').add({
-      attemptedBy: userName,
-      liveVideoId: activeLiveId,
-      code,
-      ownedBy: owner,
-      reason: 'CODE_TAKEN',
+      attemptedBy: userName, liveVideoId: activeLiveId,
+      code, ownedBy: owner, reason: 'CODE_TAKEN',
       createdAt: new Date()
     });
     return;
   }
 
-  // Save price range order tagged with active stream context
   await db.collection('orders').add({
-    userName,
-    fbUserId: senderPsid,
-    liveVideoId: activeLiveId, 
-    code,
-    price,
-    qty: 1,
-    type: 'price_range',
-    source: 'facebook_live',
+    userName, fbUserId: senderPsid,
+    liveVideoId: activeLiveId,
+    code, price, qty: 1,
+    type: 'price_range', source: 'facebook_live',
     createdAt: new Date()
   });
   console.log(`✅ Price range order: ${userName} → #${code} @ $${price}`);
@@ -335,17 +357,14 @@ async function processComment(senderPsid, senderName, message, commentId, liveVi
 // ── Handle Incoming Messenger Message ────────────────────
 async function handleIncomingMessage(psid, message) {
   try {
-    const liveMode = await getLiveMode();
+    const liveMode    = await getLiveMode();
     const activeVideoId = liveMode ? (liveMode.liveVideoId || "general") : "general";
 
-    const sentRef  = db.collection('message_sent_log').doc(psid);
-    const sentSnap = await sentRef.get();
+    const sentRef       = db.collection('message_sent_log').doc(psid);
+    const sentSnap      = await sentRef.get();
     const lastSentCount = sentSnap.exists ? (sentSnap.data().orderCount || 0) : -1;
 
-    const snap = await db.collection('orders')
-      .where('fbUserId', '==', psid)
-      .get();
-
+    const snap    = await db.collection('orders').where('fbUserId', '==', psid).get();
     const profile = await getShopProfile();
 
     if (snap.empty) {
@@ -358,7 +377,6 @@ async function handleIncomingMessage(psid, message) {
       return;
     }
 
-    // Filter dynamic collections on runtime memory array structure
     const orders = snap.docs
       .map(d => d.data())
       .filter(order => order.liveVideoId === activeVideoId)
@@ -395,8 +413,8 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// ── Webhook Events ────────────────────────────────────────
-app.post('/webhook', async (req, res) => {
+// ── Webhook Events (with rate limiting) ───────────────────
+app.post('/webhook', webhookRateLimit, async (req, res) => {
   const body = req.body;
   res.sendStatus(200);
 
@@ -437,10 +455,9 @@ app.post('/webhook', async (req, res) => {
               return;
             }
 
-            const postId     = val.post_id || '';
-            const liveId     = liveMode.liveVideoId || '';
-            const livePostId = liveMode.livePostId || '';
-
+            const postId        = val.post_id || '';
+            const liveId        = liveMode.liveVideoId || '';
+            const livePostId    = liveMode.livePostId  || '';
             const numericPostId = postId.includes('_') ? postId.split('_')[1] : postId;
 
             const isFromLive =
@@ -455,7 +472,6 @@ app.post('/webhook', async (req, res) => {
               return;
             }
 
-            // Forward video id context downstream explicitly
             await processComment(senderPsid, senderName, message, commentId, liveId);
           }
         }
