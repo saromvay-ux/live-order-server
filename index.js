@@ -229,18 +229,18 @@ function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAclid
 function parseComment(text) {
   const trimmed = text.trim();
 
-  const matchEq = trimmed.match(/^(\d+)=(\d+)$/);
-  if (matchEq) {
-    const code = parseInt(matchEq[1]);
+  const matchEq = trimmed.match(/^([A-Za-z0-9]+)=(\d+)$/);
+if (matchEq) {
+  const code = matchEq[1].toUpperCase();
     const qty  = parseInt(matchEq[2]);
     if (qty < 1) return null;
     return { code, qty };
   }
 
-  const matchNum = trimmed.match(/^(\d+)$/);
-  if (matchNum) {
-    return { code: parseInt(matchNum[1]), qty: 1 };
-  }
+  const matchNum = trimmed.match(/^([A-Za-z0-9]+)$/);
+if (matchNum) {
+  return { code: matchNum[1].toUpperCase(), qty: 1 };
+}
 
   return null;
 }
