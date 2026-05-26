@@ -61,7 +61,7 @@ function webhookRateLimit(req, res, next) {
 // ── Token Cache (avoid reading Firebase on every comment) ─
 // Cache tokens for 5 minutes to reduce Firebase reads
 const tokenCache = new Map(); // pageId → { token, sellerId, cachedAt }
-const TOKEN_CACHE_TTL = 1 * 60 * 1000; //  minutes
+const TOKEN_CACHE_TTL = 1 * 60 * 1000; // 1 minutes
 
 // ── Helper: Get seller token by pageId ───────────────────
 // Looks up which seller owns this pageId and returns their token
