@@ -258,7 +258,7 @@ function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAclid
   const lines = orders.map(o => {
     const qty   = o.qty   || 1;
     const price = o.price || 0;
-    return `📦 កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
+    return `🛍️ កូដ #${o.code} × ${qty} = $${(qty * price).toFixed(2)}`;
   }).join('\n');
 
   const subtotal      = orders.reduce((s, o) => s + ((o.qty || 1) * (o.price || 0)), 0);
@@ -266,7 +266,7 @@ function buildOrderMessage(userName, orders, sellerPhone, sellerAba, sellerAclid
   const totalAllRiel  = totalAllUsd * exchangeRate;
   const formattedRiel = totalAllRiel.toLocaleString('en-US');
 
-  return `🙏សួរស្តីបង!👤 ${userName}\n✅បងបានបញ្ជាទិញ\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់: $${totalAllUsd.toFixed(2)}\n💵 សរុបទាំងអស់: ${formattedRiel} រៀល\n📞 លេខទូរស័ព្ទ: ${phone}\n🏦 គណនី ABA: ${aba}\n✨ គណនី ACLEDA: ${aclida}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ!`;
+  return `🙏សួរស្តីបង!👤 ${userName}\n🛒បងបានបញ្ជាទិញ\n━━━━━━━━━━━━━\n${lines}\n🚚 ថ្លៃសេវាដឹកជញ្ជូន: $${deliveryFee.toFixed(2)}\n━━━━━━━━━━━━━\n💵 សរុបទាំងអស់($): $${totalAllUsd.toFixed(2)}\n💵 សរុបទាំងអស់(៛): ${formattedRiel} រៀល\n📞 លេខទូរស័ព្ទ: ${phone}\n🏦 គណនី ABA: ${aba}\n✨ គណនី ACLEDA: ${aclida}\n\n🙏 អរគុណសម្រាប់ការបញ្ជាទិញ🥰!`;
 }
 
 // ── Helper: Parse comment ─────────────────────────────────
